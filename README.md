@@ -46,7 +46,7 @@ async function searchTables (table, argSearch) {
     if (!validTables.has(table)) {
         throw new Error(`ERROR: The entered table name does not match the table in the database`)
     };
-    // Проверка параметра поиска на равенство пустой строке 
+    // Проверка параметра поиска на валидность 
     const notValidArgsSearch = new Set(['', null, 'null', undefined, 'undefined'])
     if (notValidArgsSearch.has(argSearch)) {
         throw new Error(`ERROR: No search string entered`)
@@ -128,55 +128,38 @@ test(
 ```
 ___
 #### Задание №2 (Расположено в папке "Task2")
-##### Файл `Task2_some.sql`. В этом файле сравнение характеристик и значаний характеристик происходит по классической выборке JSONB
+##### Файл `Task2_version1.sql`. Первая версия выполнения задания
 ```
-SELECT c_gr.char_code, c_gr.char_code_start_position, c_gr.char_code_end_position, c_gr.char_value_name, c_gr.char_value_name_group_position, c_gr.comment, (c_gr.characteristics @> c_it.characteristics) as item_has_char 
+SELECT c_gr.char_code, c_gr.char_code_start_position, c_gr.char_code_end_position, c_gr.char_value_name, c_gr.char_value_name_group_position, c_gr.comment, 
+	bool_item_has_char.item_has_char
 FROM public.cfg_group_char_attributes as c_gr 
+JOIN public.cfg_item_char_attributes as c_it
+ON c_gr.characteristic_values != c_it.characteristic_values 
+JOIN (SELECT c_gr.id, (jsonb_build_object('id', arr.item_object['id']) in (
+		SELECT jsonb_build_object('id', characteristic) 
+		FROM cfg_item_characteristics 
+		WHERE cfg_item='43cbc45d-d939-4fd3-b673-8354a562fe51')) AS item_has_char
+	FROM cfg_group_char_attributes as c_gr,
+	jsonb_array_elements(c_gr.characteristics) with ordinality arr(item_object, position)
+	WHERE c_gr.cfg_item_group = 'c52b39e8-bbc6-4e90-8bd4-55bba9fa8948') AS bool_item_has_char
+ON bool_item_has_char.id = c_gr.id
+WHERE c_gr.cfg_item_group = 'c52b39e8-bbc6-4e90-8bd4-55bba9fa8948' AND
+	c_it.cfg_item = '43cbc45d-d939-4fd3-b673-8354a562fe51'
+```
+##### Файл `Task2_version2.sql`. Вторая версия выполнения задания
+```
+SELECT DISTINCT c_gr.char_code, c_gr.char_code_start_position, c_gr.char_code_end_position, c_gr.char_value_name, 
+	c_gr.char_value_name_group_position, c_gr.comment, 
+	jsonb_build_object('id', arr.item_object['id']) in (
+		SELECT DISTINCT jsonb_build_object('id', characteristic)
+		FROM cfg_item_characteristics
+		WHERE cfg_item = '43cbc45d-d939-4fd3-b673-8354a562fe51') AS item_has_char
+FROM cfg_group_char_attributes as c_gr,
+jsonb_array_elements(c_gr.characteristics) with ordinality arr(item_object, position)
 CROSS JOIN public.cfg_item_char_attributes as c_it
-WHERE NOT(c_it.characteristic_values @> c_gr.characteristic_values) AND  
-	c_gr.cfg_item_group = '9998b5ec-2722-4d75-bb21-34a297f04490' AND
-	c_it.cfg_item = 'fe62c993-70eb-48d2-9fa8-ae5210103dd9'
-```
-##### Файл `Task2_full.sql`. В этом файле сравнение характеристик и значаний характеристик происходит при помощи итерации этих значаний
-```
--- Создание запроса сравнения cfg_group_char_attributes.characteristics и cfg_item_characteristics.characteristic
-CREATE OR REPLACE FUNCTION select_item_has_char(IN id_item_group text, IN id_item text) RETURNS TABLE(cfg_item_group jsonb, item_has_char boolean) AS
-$$
-DECLARE
-	characteristic_group RECORD;
-BEGIN
-	FOR characteristic_group in SELECT jsonb_path_query(characteristics, '$.id[*]'::jsonpath) as characteristics_item
-		FROM cfg_item_char_attributes
-		WHERE cfg_item=id_item
-	LOOP
-		RETURN QUERY SELECT cfg_g.characteristics, (cfg_g.characteristics @> (CONCAT('[{"id":', characteristic_group.characteristics_item, '}]'))::jsonb) as item_has_char FROM cfg_group_char_attributes as cfg_g WHERE cfg_g.cfg_item_group=id_item_group ORDER BY item_has_char;
-	END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
--- Создание запроса сравения cfg_group_char_attributes.characteristic_values и cfg_item_char_attributes.characteristic_values
-CREATE OR REPLACE FUNCTION result_select(IN id_item_group text, IN id_item text) RETURNS TABLE(char_code character varying, char_code_start_position int, char_code_end_position int, char_value_name character varying, char_value_name_group_position int, comment text, item_has_char boolean) AS 
-$$
-
-DECLARE
-	ids_item RECORD;
-BEGIN
-	FOR ids_item in SELECT DISTINCT jsonb_path_query(characteristic_values, '$.id[*]'::jsonpath) as item
-		FROM cfg_item_char_attributes
-		WHERE cfg_item=id_item
-	LOOP
-		RETURN QUERY 
-		SELECT c_gr.char_code, c_gr.char_code_start_position, c_gr.char_code_end_position, c_gr.char_value_name, c_gr.char_value_name_group_position, c_gr.comment, select_item_has_char.item_has_char FROM cfg_group_char_attributes AS c_gr
-		
-		INNER JOIN select_item_has_char(id_item_group, id_item)
-		ON select_item_has_char.cfg_item_group = c_gr.characteristics
-		WHERE NOT(c_gr.characteristic_values @> (CONCAT('[{"id":', ids_item.item, '}]'))::jsonb) 
-			AND c_gr.cfg_item_group=id_item_group;
-	END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
-SELECT DISTINCT * FROM result_select('9998b5ec-2722-4d75-bb21-34a297f04490', 'a03f74b3-29f2-4021-a900-9675910221fc')
+WHERE NOT(c_gr.characteristic_values @> c_it.characteristic_values)
+	AND c_gr.cfg_item_group='9998b5ec-2722-4d75-bb21-34a297f04490'
+	AND c_it.cfg_item = '43cbc45d-d939-4fd3-b673-8354a562fe51'
 ```
 ___
 # Спасибо за просмотр

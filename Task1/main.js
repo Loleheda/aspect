@@ -6,7 +6,7 @@ async function searchTables (table, argSearch) {
     if (!validTables.has(table)) {
         throw new Error(`ERROR: The entered table name does not match the table in the database`)
     };
-    // Проверка параметра поиска на равенство пустой строке 
+    // Проверка параметра поиска на валидность 
     const notValidArgsSearch = new Set(['', null, 'null', undefined, 'undefined'])
     if (notValidArgsSearch.has(argSearch)) {
         throw new Error(`ERROR: No search string entered`)
